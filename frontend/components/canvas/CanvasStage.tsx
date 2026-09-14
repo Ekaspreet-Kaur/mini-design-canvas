@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Circle, Layer, Rect, Stage, Text, Transformer } from "react-konva";
+import {
+  Circle,
+  Layer,
+  Rect,
+  Stage,
+  Text,
+  Transformer,
+} from "react-konva";
 import type Konva from "konva";
 import type { CanvasElement } from "../../types/canvas";
 
@@ -13,6 +20,11 @@ interface Props {
   onSelect: (id: string | null) => void;
   onChange: (id: string, changes: Partial<CanvasElement>) => void;
   onCommit: () => void;
+}
+
+interface EditingText {
+  id: string;
+  value: string;
 }
 
 export default function CanvasStage({
@@ -29,9 +41,11 @@ export default function CanvasStage({
   const transformerRef = useRef<Konva.Transformer | null>(null);
 
   const [containerWidth, setContainerWidth] = useState(width);
+  const [editingText, setEditingText] = useState<EditingText | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
+
     if (!container) return;
 
     const updateSize = () => {
@@ -46,13 +60,26 @@ export default function CanvasStage({
     return () => observer.disconnect();
   }, []);
 
+  /*
+   * Keep the entire canvas visible inside the workspace.
+   * The stage itself keeps its real design coordinates;
+   * only its visual scale changes.
+   */
+  const horizontalPadding = 32;
+
   const scale = Math.min(
     1,
-    Math.max(0.1, (containerWidth - 32) / width),
+    Math.max(
+      0.35,
+      (containerWidth - horizontalPadding) / width,
+    ),
   );
 
   useEffect(() => {
-    const node = selectedId ? shapeRefs.current[selectedId] : null;
+    const node = selectedId
+      ? shapeRefs.current[selectedId]
+      : null;
+
     const transformer = transformerRef.current;
 
     if (!transformer) return;
@@ -69,8 +96,15 @@ export default function CanvasStage({
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
 
-    const newWidth = Math.max(10, element.width * scaleX);
-    const newHeight = Math.max(10, element.height * scaleY);
+    const newWidth = Math.max(
+      10,
+      element.width * Math.abs(scaleX),
+    );
+
+    const newHeight = Math.max(
+      10,
+      element.height * Math.abs(scaleY),
+    );
 
     node.scaleX(1);
     node.scaleY(1);
@@ -96,13 +130,40 @@ export default function CanvasStage({
     onCommit();
   };
 
+  const startTextEditing = (element: CanvasElement) => {
+    if (element.type !== "text") return;
+
+    setEditingText({
+      id: element.id,
+      value: element.text ?? "Text",
+    });
+
+    onSelect(element.id);
+  };
+
+  const finishTextEditing = () => {
+    if (!editingText) return;
+
+    const value = editingText.value.trim();
+
+    if (value) {
+      onChange(editingText.id, {
+        text: value,
+      });
+
+      onCommit();
+    }
+
+    setEditingText(null);
+  };
+
   return (
     <div
       ref={containerRef}
-      className="w-full overflow-auto rounded-xl border border-slate-200 bg-slate-100 p-4 shadow-inner"
+      className="flex w-full items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 p-4 shadow-sm"
     >
       <div
-        className="mx-auto"
+        className="relative flex items-center justify-center"
         style={{
           width: width * scale,
           height: height * scale,
@@ -113,41 +174,82 @@ export default function CanvasStage({
           height={height}
           scaleX={scale}
           scaleY={scale}
+          style={{
+            background: "white",
+            boxShadow:
+              "0 8px 30px rgba(15, 23, 42, 0.08)",
+          }}
           onMouseDown={(event) => {
-            if (event.target === event.target.getStage()) {
+            if (
+              event.target === event.target.getStage()
+            ) {
               onSelect(null);
+              finishTextEditing();
+            }
+          }}
+          onTouchStart={(event) => {
+            if (
+              event.target === event.target.getStage()
+            ) {
+              onSelect(null);
+              finishTextEditing();
             }
           }}
         >
           <Layer>
             {elements.map((element) => {
               if (element.type === "circle") {
-                const circleSize = Math.min(element.width, element.height);
+                const circleSize = Math.min(
+                  element.width,
+                  element.height,
+                );
 
                 return (
                   <Circle
                     key={element.id}
                     ref={(node) => {
-                      shapeRefs.current[element.id] = node;
+                      shapeRefs.current[element.id] =
+                        node;
                     }}
-                    x={element.x + element.width / 2}
-                    y={element.y + element.height / 2}
+                    x={
+                      element.x +
+                      element.width / 2
+                    }
+                    y={
+                      element.y +
+                      element.height / 2
+                    }
                     radius={circleSize / 2}
-                    scaleX={element.width / circleSize}
-                    scaleY={element.height / circleSize}
+                    scaleX={
+                      element.width / circleSize
+                    }
+                    scaleY={
+                      element.height / circleSize
+                    }
                     rotation={element.rotation}
                     fill={element.fill}
                     draggable
-                    onClick={() => onSelect(element.id)}
-                    onTap={() => onSelect(element.id)}
+                    onClick={() => {
+                      onSelect(element.id);
+                    }}
+                    onTap={() => {
+                      onSelect(element.id);
+                    }}
                     onDragEnd={(event) => {
                       onChange(element.id, {
-                        x: event.target.x() - element.width / 2,
-                        y: event.target.y() - element.height / 2,
+                        x:
+                          event.target.x() -
+                          element.width / 2,
+                        y:
+                          event.target.y() -
+                          element.height / 2,
                       });
+
                       onCommit();
                     }}
-                    onTransformEnd={() => handleTransformEnd(element)}
+                    onTransformEnd={() => {
+                      handleTransformEnd(element);
+                    }}
                   />
                 );
               }
@@ -157,47 +259,48 @@ export default function CanvasStage({
                   <Text
                     key={element.id}
                     ref={(node) => {
-                      shapeRefs.current[element.id] = node;
+                      shapeRefs.current[element.id] =
+                        node;
                     }}
                     x={element.x}
                     y={element.y}
                     width={element.width}
                     height={element.height}
                     rotation={element.rotation}
-                    text={element.text ?? "Text"}
-                    fontSize={element.fontSize ?? 28}
+                    text={
+                      element.text ??
+                      "Double-click to edit"
+                    }
+                    fontSize={
+                      element.fontSize ?? 28
+                    }
                     fill={element.fill}
                     verticalAlign="middle"
                     padding={4}
-                    draggable
-                    onClick={() => onSelect(element.id)}
-		    onTap={() => onSelect(element.id)}
-		    onDblClick={() => {
-  			const currentText = element.text ?? "Text";
- 			 const nextText = window.prompt("Edit text", currentText);
-
-  			if (nextText !== null && nextText.trim() !== "") {
-   				 onChange(element.id, { text: nextText });
-   			 onCommit();
-  }
-}}
-	          onDblTap={() => {
- 		 const currentText = element.text ?? "Text";
-  		const nextText = window.prompt("Edit text", currentText);
-
- 		 if (nextText !== null && nextText.trim() !== "") {
-    onChange(element.id, { text: nextText });
-    onCommit();
-  }
-}}
-onDragEnd={(event) => {
+                    draggable={!editingText}
+                    onClick={() => {
+                      onSelect(element.id);
+                    }}
+                    onTap={() => {
+                      onSelect(element.id);
+                    }}
+                    onDblClick={() => {
+                      startTextEditing(element);
+                    }}
+                    onDblTap={() => {
+                      startTextEditing(element);
+                    }}
+                    onDragEnd={(event) => {
                       onChange(element.id, {
                         x: event.target.x(),
                         y: event.target.y(),
                       });
+
                       onCommit();
                     }}
-                    onTransformEnd={() => handleTransformEnd(element)}
+                    onTransformEnd={() => {
+                      handleTransformEnd(element);
+                    }}
                   />
                 );
               }
@@ -206,7 +309,8 @@ onDragEnd={(event) => {
                 <Rect
                   key={element.id}
                   ref={(node) => {
-                    shapeRefs.current[element.id] = node;
+                    shapeRefs.current[element.id] =
+                      node;
                   }}
                   x={element.x}
                   y={element.y}
@@ -216,16 +320,23 @@ onDragEnd={(event) => {
                   fill={element.fill}
                   cornerRadius={8}
                   draggable
-                  onClick={() => onSelect(element.id)}
-                  onTap={() => onSelect(element.id)}
+                  onClick={() => {
+                    onSelect(element.id);
+                  }}
+                  onTap={() => {
+                    onSelect(element.id);
+                  }}
                   onDragEnd={(event) => {
                     onChange(element.id, {
                       x: event.target.x(),
                       y: event.target.y(),
                     });
+
                     onCommit();
                   }}
-                  onTransformEnd={() => handleTransformEnd(element)}
+                  onTransformEnd={() => {
+                    handleTransformEnd(element);
+                  }}
                 />
               );
             })}
@@ -244,9 +355,76 @@ onDragEnd={(event) => {
                 "bottom-left",
                 "middle-left",
               ]}
+              boundBoxFunc={(oldBox, newBox) => {
+                if (
+                  Math.abs(newBox.width) < 10 ||
+                  Math.abs(newBox.height) < 10
+                ) {
+                  return oldBox;
+                }
+
+                return newBox;
+              }}
             />
           </Layer>
         </Stage>
+
+        {editingText && (
+          <textarea
+            autoFocus
+            value={editingText.value}
+            onChange={(event) => {
+              setEditingText({
+                ...editingText,
+                value: event.target.value,
+              });
+            }}
+            onBlur={finishTextEditing}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey
+              ) {
+                event.preventDefault();
+                finishTextEditing();
+              }
+
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setEditingText(null);
+              }
+            }}
+            className="absolute z-50 resize-none border border-blue-500 bg-white px-1 py-1 text-slate-900 shadow-lg outline-none"
+            style={{
+              left:
+                (elements.find(
+                  (item) =>
+                    item.id === editingText.id,
+                )?.x ?? 0) * scale,
+              top:
+                (elements.find(
+                  (item) =>
+                    item.id === editingText.id,
+                )?.y ?? 0) * scale,
+              width:
+                (elements.find(
+                  (item) =>
+                    item.id === editingText.id,
+                )?.width ?? 220) * scale,
+              height:
+                (elements.find(
+                  (item) =>
+                    item.id === editingText.id,
+                )?.height ?? 70) * scale,
+              fontSize:
+                ((elements.find(
+                  (item) =>
+                    item.id === editingText.id,
+                )?.fontSize ?? 28) *
+                  scale),
+            }}
+          />
+        )}
       </div>
     </div>
   );
